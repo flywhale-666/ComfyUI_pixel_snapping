@@ -98,6 +98,13 @@ class FaceHandCropNode:
                     "step": 0.1,
                     "display": "number",
                 }),
+                "maskpadding_ratio": ("FLOAT", {
+                    "default": 1.5,
+                    "min": 0.5,
+                    "max": 10.0,
+                    "step": 0.1,
+                    "display": "number",
+                }),
                 "face_position": ("FLOAT", {
                     "default": 0.5,
                     "min": 0.0,
@@ -150,6 +157,7 @@ class FaceHandCropNode:
         max_faces,
         start_face,
         padding_ratio,
+        maskpadding_ratio,
         face_position,
         target_width,
         target_height,
@@ -228,10 +236,13 @@ class FaceHandCropNode:
         bbox_h = max(1.0, y2 - y1)
 
         padding_ratio = float(np.clip(padding_ratio, 0.5, 10.0))
+        maskpadding_ratio = float(np.clip(maskpadding_ratio, 0.5, 10.0))
         face_position = float(np.clip(face_position, 0.0, 1.0))
 
         crop_w = max(1, int(round(bbox_w * padding_ratio)))
         crop_h = max(1, int(round(bbox_h * padding_ratio)))
+        mask_w = max(1, int(round(bbox_w * maskpadding_ratio)))
+        mask_h = max(1, int(round(bbox_h * maskpadding_ratio)))
 
         if enable_resize and target_width > 0 and target_height > 0:
             target_aspect = target_width / target_height
@@ -241,6 +252,12 @@ class FaceHandCropNode:
                     crop_w = max(1, int(round(crop_h * target_aspect)))
                 else:
                     crop_h = max(1, int(round(crop_w / target_aspect)))
+            mask_aspect = mask_w / mask_h
+            if abs(target_aspect - mask_aspect) > 1e-3:
+                if target_aspect > mask_aspect:
+                    mask_w = max(1, int(round(mask_h * target_aspect)))
+                else:
+                    mask_h = max(1, int(round(mask_w / target_aspect)))
 
         cx = (x1 + x2) / 2.0
         cy = (y1 + y2) / 2.0
@@ -249,6 +266,15 @@ class FaceHandCropNode:
         crop_y_min = int(round(cy - face_position * crop_h))
         crop_x_max = crop_x_min + crop_w
         crop_y_max = crop_y_min + crop_h
+        crop_x_min_raw = crop_x_min
+        crop_y_min_raw = crop_y_min
+        crop_x_max_raw = crop_x_max
+        crop_y_max_raw = crop_y_max
+
+        mask_x_min = int(round(cx - 0.5 * mask_w))
+        mask_y_min = int(round(cy - face_position * mask_h))
+        mask_x_max = mask_x_min + mask_w
+        mask_y_max = mask_y_min + mask_h
 
         pad_left = pad_right = pad_top = pad_bottom = 0
 
@@ -268,6 +294,10 @@ class FaceHandCropNode:
                 crop_y_min = 0
                 crop_y_max = img_h
                 crop_h = img_h
+            mask_x_min = max(0, min(mask_x_min, img_w))
+            mask_x_max = max(0, min(mask_x_max, img_w))
+            mask_y_min = max(0, min(mask_y_min, img_h))
+            mask_y_max = max(0, min(mask_y_max, img_h))
         else:
             pad_left = max(0, -crop_x_min)
             pad_top = max(0, -crop_y_min)
@@ -310,10 +340,25 @@ class FaceHandCropNode:
         out_h, out_w = cropped.shape[:2]
 
         face_mask = np.zeros((out_h, out_w), dtype=np.float32)
-        rel_x1 = int(np.floor(x1 - crop_x_min + pad_left))
-        rel_y1 = int(np.floor(y1 - crop_y_min + pad_top))
-        rel_x2 = int(np.ceil(x2 - crop_x_min + pad_left))
-        rel_y2 = int(np.ceil(y2 - crop_y_min + pad_top))
+        if padding_mode == "none":
+            mask_x1 = mask_x_min
+            mask_y1 = mask_y_min
+            mask_x2 = mask_x_max
+            mask_y2 = mask_y_max
+            base_crop_x = crop_x_min
+            base_crop_y = crop_y_min
+        else:
+            mask_x1 = mask_x_min
+            mask_y1 = mask_y_min
+            mask_x2 = mask_x_max
+            mask_y2 = mask_y_max
+            base_crop_x = crop_x_min_raw
+            base_crop_y = crop_y_min_raw
+
+        rel_x1 = int(np.floor(mask_x1 - base_crop_x))
+        rel_y1 = int(np.floor(mask_y1 - base_crop_y))
+        rel_x2 = int(np.ceil(mask_x2 - base_crop_x))
+        rel_y2 = int(np.ceil(mask_y2 - base_crop_y))
 
         rel_x1 = max(0, min(rel_x1, out_w))
         rel_x2 = max(0, min(rel_x2, out_w))
@@ -324,10 +369,16 @@ class FaceHandCropNode:
             face_mask[rel_y1:rel_y2, rel_x1:rel_x2] = 1.0
 
         face_mask_full = np.zeros((img_h, img_w), dtype=np.float32)
-        full_x1 = int(np.floor(x1))
-        full_y1 = int(np.floor(y1))
-        full_x2 = int(np.ceil(x2))
-        full_y2 = int(np.ceil(y2))
+        if padding_mode == "none":
+            full_x1 = int(np.floor(mask_x_min))
+            full_y1 = int(np.floor(mask_y_min))
+            full_x2 = int(np.ceil(mask_x_max))
+            full_y2 = int(np.ceil(mask_y_max))
+        else:
+            full_x1 = int(np.floor(mask_x_min))
+            full_y1 = int(np.floor(mask_y_min))
+            full_x2 = int(np.ceil(mask_x_max))
+            full_y2 = int(np.ceil(mask_y_max))
         full_x1 = max(0, min(full_x1, img_w))
         full_x2 = max(0, min(full_x2, img_w))
         full_y1 = max(0, min(full_y1, img_h))

@@ -1,0 +1,93 @@
+{
+    "PixelSnapping": {
+        "title": "像素对齐 (SIFT)",
+        "inputs": {
+            "reference_image": "参考图",
+            "target_image": "目标图",
+            "target_mask": "目标遮罩"
+        },
+        "widgets": {
+            "max_features": "最大特征点",
+            "match_ratio": "匹配比例",
+            "ransac_threshold": "RANSAC 阈值",
+            "invert_input_mask": "反转输入遮罩",
+            "mask_grow": "遮罩膨胀/收缩",
+            "mask_blur": "遮罩模糊",
+            "invert_output_mask": "反转输出遮罩"
+        },
+        "outputs": {
+            "stitched_image": "拼接图",
+            "mask": "遮罩",
+            "corrected_target": "校正目标图"
+        }
+    },
+    "PowerfulMaskCrop": {
+        "title": "强力遮罩裁剪",
+        "inputs": {
+            "image": "图像",
+            "mask": "遮罩"
+        },
+        "widgets": {
+            "top_padding": "上边距",
+            "bottom_padding": "下边距",
+            "left_padding": "左边距",
+            "right_padding": "右边距",
+            "enable_resize": "启用固定尺寸",
+            "target_width": "固定宽度",
+            "target_height": "固定高度",
+            "padding_mode": "填充模式",
+            "padding_mode:black": "黑色",
+            "padding_mode:white": "白色",
+            "padding_mode:none": "不填充",
+            "size_multiple": "尺寸倍数"
+        },
+        "outputs": {
+            "cropped_image": "裁剪图像",
+            "cropped_mask": "裁剪遮罩",
+            "crop_region_mask": "原图遮罩",
+            "crop_info": "裁剪信息"
+        }
+    },
+    "PowerfulMaskRestore": {
+        "title": "强力遮罩恢复",
+        "inputs": {
+            "original_image": "原图",
+            "processed_crop": "处理后裁剪图",
+            "original_mask": "原图遮罩",
+            "crop_info": "裁剪信息"
+        },
+        "outputs": {
+            "restored_image": "恢复图像"
+        }
+    },
+    "FaceHandCrop": {
+        "title": "人脸/手部裁剪 (YOLO)",
+        "inputs": {
+            "image": "图像",
+            "mask": "遮罩"
+        },
+        "widgets": {
+            "model_path": "模型路径",
+            "max_faces": "最大人脸数",
+            "start_face": "起始人脸",
+            "padding_ratio": "裁剪缩放",
+            "maskpadding_ratio": "遮罩缩放",
+            "face_position": "人脸位置",
+            "enable_resize": "启用固定尺寸",
+            "target_width": "固定宽度",
+            "target_height": "固定高度",
+            "padding_mode": "填充模式",
+            "padding_mode:black": "黑色",
+            "padding_mode:white": "白色",
+            "padding_mode:none": "不填充",
+            "size_multiple": "尺寸倍数"
+        },
+        "outputs": {
+            "cropped_image": "裁剪图像",
+            "face_mask": "人脸遮罩",
+            "face_mask_full": "原图人脸遮罩",
+            "crop_info": "裁剪信息",
+            "face_count": "人脸数量"
+        }
+    }
+}
