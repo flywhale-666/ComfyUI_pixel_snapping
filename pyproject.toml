@@ -1,7 +1,7 @@
 [project]
 name = "comfyui_pixel_snapping"
 description = "SIFT-based image alignment, intelligent mask cropping and restoration for ComfyUI"
-version = "1.0.5"
+version = "1.0.6"
 license = {file = "LICENSE"} 
 # classifiers = [
 #     # For OS-independent nodes (works on all operating systems)

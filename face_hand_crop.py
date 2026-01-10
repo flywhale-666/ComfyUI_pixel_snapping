@@ -244,21 +244,6 @@ class FaceHandCropNode:
         mask_w = max(1, int(round(bbox_w * maskpadding_ratio)))
         mask_h = max(1, int(round(bbox_h * maskpadding_ratio)))
 
-        if enable_resize and target_width > 0 and target_height > 0:
-            target_aspect = target_width / target_height
-            current_aspect = crop_w / crop_h
-            if abs(target_aspect - current_aspect) > 1e-3:
-                if target_aspect > current_aspect:
-                    crop_w = max(1, int(round(crop_h * target_aspect)))
-                else:
-                    crop_h = max(1, int(round(crop_w / target_aspect)))
-            mask_aspect = mask_w / mask_h
-            if abs(target_aspect - mask_aspect) > 1e-3:
-                if target_aspect > mask_aspect:
-                    mask_w = max(1, int(round(mask_h * target_aspect)))
-                else:
-                    mask_h = max(1, int(round(mask_w / target_aspect)))
-
         cx = (x1 + x2) / 2.0
         cy = (y1 + y2) / 2.0
 
@@ -266,15 +251,6 @@ class FaceHandCropNode:
         crop_y_min = int(round(cy - face_position * crop_h))
         crop_x_max = crop_x_min + crop_w
         crop_y_max = crop_y_min + crop_h
-        crop_x_min_raw = crop_x_min
-        crop_y_min_raw = crop_y_min
-        crop_x_max_raw = crop_x_max
-        crop_y_max_raw = crop_y_max
-
-        mask_x_min = int(round(cx - 0.5 * mask_w))
-        mask_y_min = int(round(cy - face_position * mask_h))
-        mask_x_max = mask_x_min + mask_w
-        mask_y_max = mask_y_min + mask_h
 
         pad_left = pad_right = pad_top = pad_bottom = 0
 
@@ -294,11 +270,47 @@ class FaceHandCropNode:
                 crop_y_min = 0
                 crop_y_max = img_h
                 crop_h = img_h
-            mask_x_min = max(0, min(mask_x_min, img_w))
-            mask_x_max = max(0, min(mask_x_max, img_w))
-            mask_y_min = max(0, min(mask_y_min, img_h))
-            mask_y_max = max(0, min(mask_y_max, img_h))
-        else:
+        crop_w = crop_x_max - crop_x_min
+        crop_h = crop_y_max - crop_y_min
+
+        if enable_resize and target_width > 0 and target_height > 0:
+            target_aspect = target_width / target_height
+            current_aspect = crop_w / crop_h
+            if abs(target_aspect - current_aspect) > 1e-3:
+                if target_aspect > current_aspect:
+                    new_crop_w = int(round(crop_h * target_aspect))
+                    w_expand = new_crop_w - crop_w
+                    left_expand = w_expand // 2
+                    right_expand = w_expand - left_expand
+                    crop_x_min -= left_expand
+                    crop_x_max += right_expand
+                    if padding_mode == "none":
+                        crop_x_min = max(0, crop_x_min)
+                        crop_x_max = min(img_w, crop_x_max)
+                else:
+                    new_crop_h = int(round(crop_w / target_aspect))
+                    h_expand = new_crop_h - crop_h
+                    top_expand = h_expand // 2
+                    bottom_expand = h_expand - top_expand
+                    crop_y_min -= top_expand
+                    crop_y_max += bottom_expand
+                    if padding_mode == "none":
+                        crop_y_min = max(0, crop_y_min)
+                        crop_y_max = min(img_h, crop_y_max)
+            crop_w = crop_x_max - crop_x_min
+            crop_h = crop_y_max - crop_y_min
+
+        crop_x_min_raw = crop_x_min
+        crop_y_min_raw = crop_y_min
+        crop_x_max_raw = crop_x_max
+        crop_y_max_raw = crop_y_max
+
+        mask_x_min = int(round(cx - 0.5 * mask_w))
+        mask_y_min = int(round(cy - face_position * mask_h))
+        mask_x_max = mask_x_min + mask_w
+        mask_y_max = mask_y_min + mask_h
+
+        if padding_mode != "none":
             pad_left = max(0, -crop_x_min)
             pad_top = max(0, -crop_y_min)
             pad_right = max(0, crop_x_max - img_w)
@@ -308,6 +320,11 @@ class FaceHandCropNode:
             crop_y_min = max(0, crop_y_min)
             crop_x_max = min(img_w, crop_x_max)
             crop_y_max = min(img_h, crop_y_max)
+        else:
+            mask_x_min = max(0, min(mask_x_min, img_w))
+            mask_x_max = max(0, min(mask_x_max, img_w))
+            mask_y_min = max(0, min(mask_y_min, img_h))
+            mask_y_max = max(0, min(mask_y_max, img_h))
 
         cropped = img[crop_y_min:crop_y_max, crop_x_min:crop_x_max]
         user_mask_full = None
@@ -400,8 +417,13 @@ class FaceHandCropNode:
                 final_w = target_width
                 final_h = max(1, int(round(out_h * (target_width / out_w))))
             else:
-                final_w = target_width
-                final_h = target_height
+                if padding_mode == "none":
+                    scale = min(target_width / out_w, target_height / out_h)
+                    final_w = max(1, int(round(out_w * scale)))
+                    final_h = max(1, int(round(out_h * scale)))
+                else:
+                    final_w = target_width
+                    final_h = target_height
 
             if final_w != out_w or final_h != out_h:
                 cropped = cv2.resize(cropped, (final_w, final_h), interpolation=cv2.INTER_LINEAR)
