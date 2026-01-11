@@ -89,5 +89,20 @@
             "crop_info": "裁剪信息",
             "face_count": "人脸数量"
         }
+    },
+    "PowerfulColorMatch": {
+        "title": "强力颜色对齐",
+        "inputs": {
+            "target_image": "目标图像",
+            "reference_image": "参考图像"
+        },
+        "widgets": {
+            "method": "匹配方法",
+            "method:region_aware": "区域感知",
+            "strength": "强度"
+        },
+        "outputs": {
+            "matched_image": "匹配图像"
+        }
     }
 }
