@@ -23,7 +23,7 @@ class ColorMatchNode:
                 "strength": ("FLOAT", {
                     "default": 1.0,
                     "min": 0.0,
-                    "max": 1.5,  # 允许超过1.0，更强力调整
+                    "max": 2.0,  # 允许到2.0，用于强化背景区域匹配
                     "step": 0.01,
                     "display": "slider"
                 }),
@@ -43,10 +43,10 @@ class ColorMatchNode:
             target_image: 待调整图像（换脸后）[B, H, W, C]
             reference_image: 参考图像（原图）[B, H, W, C]
             method: 匹配方法
-            strength: 混合强度 (0-1)
+            strength: 混合强度 (0-2.0，>1.0时主要强化背景区域)
         
         Returns:
-            匹配后的图像
+            匹配后的图像, 权重图（用于strength>1.0时的区域调整）
         """
         # 只处理 batch 中的第一张
         target = target_image[0].cpu().numpy()  # [H, W, C]
@@ -58,15 +58,16 @@ class ColorMatchNode:
         
         # 根据方法选择算法
         if method == "region_aware":
-            matched = self._region_aware_color_transfer(target_uint8, reference_uint8)
+            matched, weight_map = self._region_aware_color_transfer(target_uint8, reference_uint8, strength)
         else:
             matched = target_uint8
+            weight_map = None
         
-        # 强度混合（支持>1.0，让调整更强）
-        if strength != 1.0:
+        # 强度混合
+        if strength != 1.0 and weight_map is None:
+            # 如果没有权重图，使用全局混合
             if strength > 1.0:
                 # 超过1.0时，进一步强化效果
-                # strength=1.5 → 让匹配结果占比150%，原图占比-50%（会被clip限制）
                 matched = cv2.addWeighted(matched, strength, target_uint8, 1 - strength, 0)
                 matched = np.clip(matched, 0, 255).astype(np.uint8)
             else:
@@ -83,15 +84,15 @@ class ColorMatchNode:
         
         return (result,)
     
-    def _region_aware_color_transfer(self, target, reference):
+    def _region_aware_color_transfer(self, target, reference, strength=1.0):
         """
         区域感知颜色对齐
         
         核心思路：
         1. 自动检测两张图的差异区域（变化区域 = 新脸，不变区域 = 背景）
         2. 从背景区域学习颜色变换
-        3. 背景：强力应用变换
-        4. 前景（新脸）：温和应用变换
+        3. 背景：强力应用变换（strength>1.0时更强）
+        4. 前景（新脸）：温和应用变换（保持相对保守）
         """
         print("开始区域感知颜色对齐...")
         
@@ -229,11 +230,19 @@ class ColorMatchNode:
         
         print(f"  权重范围: [{weight_map.min():.2f}, {weight_map.max():.2f}]")
         
-        # 根据权重混合原图和校正后的图
+        # 直接用strength缩放权重（背景区域会被放大到strength倍）
+        adjusted_weight_map = weight_map * strength
+        
+        if strength != 1.0:
+            print(f"  应用强度调整: {strength:.2f}x")
+            print(f"  调整后权重范围: [{adjusted_weight_map.min():.2f}, {adjusted_weight_map.max():.2f}]")
+        
+        # 根据调整后的权重混合原图和校正后的图
+        # 当weight>1.0时，使用过度补偿混合（会超出正常范围，然后clip）
         for i in range(3):
             result_lab[:, :, i] = (
-                target_lab[:, :, i] * (1 - weight_map) +  # 原始值
-                bg_corrected_lab[:, :, i] * weight_map  # 校正后的值
+                target_lab[:, :, i] * (1 - adjusted_weight_map) +  # 原始值（weight>1时为负）
+                bg_corrected_lab[:, :, i] * adjusted_weight_map  # 校正后的值（weight>1时超过100%）
             )
         
         # 限制范围
@@ -244,7 +253,7 @@ class ColorMatchNode:
         
         print("✓ 区域感知颜色对齐完成")
         
-        return result
+        return result, adjusted_weight_map
     
     def _detect_difference(self, img1, img2):
         """

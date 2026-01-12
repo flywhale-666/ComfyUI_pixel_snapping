@@ -1,4 +1,4 @@
-﻿import os
+import os
 import time
 
 import cv2
@@ -146,7 +146,7 @@ class FaceHandCropNode:
         }
 
     RETURN_TYPES = ("IMAGE", "MASK", "MASK", "CROP_INFO", "INT")
-    RETURN_NAMES = ("cropped_image", "face_mask", "face_mask_full", "crop_info", "face_count")
+    RETURN_NAMES = ("cropped_image", "face_mask", "crop_mask_full", "crop_info", "face_count")
     FUNCTION = "detect_and_crop"
     CATEGORY = "image/transform"
 
@@ -201,7 +201,8 @@ class FaceHandCropNode:
             boxes = results[0].boxes
 
         if boxes is None or boxes.xyxy is None or len(boxes) == 0:
-            empty_mask = torch.zeros((1, img_h, img_w), dtype=torch.float32)
+            empty_face_mask = torch.zeros((1, img_h, img_w), dtype=torch.float32)
+            full_crop_mask = torch.ones((1, img_h, img_w), dtype=torch.float32)
             crop_info = {
                 "original_size": (img_w, img_h),
                 "crop_region": (0, 0, img_w, img_h),
@@ -212,7 +213,7 @@ class FaceHandCropNode:
                 "FaceHandCrop timing:",
                 f"pre={(t1 - t0):.3f}s, load={(t2 - t1):.3f}s, infer={(t4 - t3):.3f}s, total={(t4 - t0):.3f}s",
             )
-            return (image, empty_mask, empty_mask, crop_info, 0)
+            return (image, empty_face_mask, full_crop_mask, crop_info, 0)
 
         xyxy = boxes.xyxy.cpu().numpy()
         areas = (xyxy[:, 2] - xyxy[:, 0]) * (xyxy[:, 3] - xyxy[:, 1])
@@ -273,11 +274,18 @@ class FaceHandCropNode:
         crop_w = crop_x_max - crop_x_min
         crop_h = crop_y_max - crop_y_min
 
+        # 【修复】先计算遮罩的初始位置
+        mask_x_min = int(round(cx - 0.5 * mask_w))
+        mask_y_min = int(round(cy - face_position * mask_h))
+        mask_x_max = mask_x_min + mask_w
+        mask_y_max = mask_y_min + mask_h
+
         if enable_resize and target_width > 0 and target_height > 0:
             target_aspect = target_width / target_height
             current_aspect = crop_w / crop_h
             if abs(target_aspect - current_aspect) > 1e-3:
                 if target_aspect > current_aspect:
+                    # 需要扩展宽度
                     new_crop_w = int(round(crop_h * target_aspect))
                     w_expand = new_crop_w - crop_w
                     left_expand = w_expand // 2
@@ -288,6 +296,7 @@ class FaceHandCropNode:
                         crop_x_min = max(0, crop_x_min)
                         crop_x_max = min(img_w, crop_x_max)
                 else:
+                    # 需要扩展高度
                     new_crop_h = int(round(crop_w / target_aspect))
                     h_expand = new_crop_h - crop_h
                     top_expand = h_expand // 2
@@ -304,11 +313,6 @@ class FaceHandCropNode:
         crop_y_min_raw = crop_y_min
         crop_x_max_raw = crop_x_max
         crop_y_max_raw = crop_y_max
-
-        mask_x_min = int(round(cx - 0.5 * mask_w))
-        mask_y_min = int(round(cy - face_position * mask_h))
-        mask_x_max = mask_x_min + mask_w
-        mask_y_max = mask_y_min + mask_h
 
         if padding_mode != "none":
             pad_left = max(0, -crop_x_min)
@@ -385,24 +389,15 @@ class FaceHandCropNode:
         if rel_x2 > rel_x1 and rel_y2 > rel_y1:
             face_mask[rel_y1:rel_y2, rel_x1:rel_x2] = 1.0
 
-        face_mask_full = np.zeros((img_h, img_w), dtype=np.float32)
-        if padding_mode == "none":
-            full_x1 = int(np.floor(mask_x_min))
-            full_y1 = int(np.floor(mask_y_min))
-            full_x2 = int(np.ceil(mask_x_max))
-            full_y2 = int(np.ceil(mask_y_max))
-        else:
-            full_x1 = int(np.floor(mask_x_min))
-            full_y1 = int(np.floor(mask_y_min))
-            full_x2 = int(np.ceil(mask_x_max))
-            full_y2 = int(np.ceil(mask_y_max))
-        full_x1 = max(0, min(full_x1, img_w))
-        full_x2 = max(0, min(full_x2, img_w))
-        full_y1 = max(0, min(full_y1, img_h))
-        full_y2 = max(0, min(full_y2, img_h))
+        # crop_mask_full: 裁剪区域在原图中的遮罩
+        crop_mask_full = np.zeros((img_h, img_w), dtype=np.float32)
+        full_x1 = max(0, min(int(crop_x_min), img_w))
+        full_y1 = max(0, min(int(crop_y_min), img_h))
+        full_x2 = max(0, min(int(crop_x_max), img_w))
+        full_y2 = max(0, min(int(crop_y_max), img_h))
 
         if full_x2 > full_x1 and full_y2 > full_y1:
-            face_mask_full[full_y1:full_y2, full_x1:full_x2] = 1.0
+            crop_mask_full[full_y1:full_y2, full_x1:full_x2] = 1.0
 
         before_w = out_w
         before_h = out_h
@@ -474,11 +469,11 @@ class FaceHandCropNode:
         if user_mask_crop is not None:
             face_mask = np.clip(face_mask * user_mask_crop, 0.0, 1.0)
         if user_mask_full is not None:
-            face_mask_full = np.clip(face_mask_full * user_mask_full, 0.0, 1.0)
+            crop_mask_full = np.clip(crop_mask_full * user_mask_full, 0.0, 1.0)
 
         cropped_tensor = torch.from_numpy(cropped).unsqueeze(0)
         face_mask_tensor = torch.from_numpy(face_mask).unsqueeze(0)
-        face_mask_full_tensor = torch.from_numpy(face_mask_full).unsqueeze(0)
+        crop_mask_full_tensor = torch.from_numpy(crop_mask_full).unsqueeze(0)
 
         crop_info = {
             "original_size": (img_w, img_h),
@@ -500,7 +495,7 @@ class FaceHandCropNode:
         return (
             cropped_tensor,
             face_mask_tensor,
-            face_mask_full_tensor,
+            crop_mask_full_tensor,
             crop_info,
             face_count,
         )

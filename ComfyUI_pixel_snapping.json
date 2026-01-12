@@ -85,7 +85,7 @@
         "outputs": {
             "cropped_image": "裁剪图像",
             "face_mask": "人脸遮罩",
-            "face_mask_full": "原图人脸遮罩",
+            "crop_mask_full": "裁剪区遮罩",
             "crop_info": "裁剪信息",
             "face_count": "人脸数量"
         }
