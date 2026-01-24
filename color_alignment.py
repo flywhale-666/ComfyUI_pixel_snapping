@@ -192,6 +192,12 @@ class ColorAlignmentNode:
         for i in [1, 2]:  # a和b通道
             # 计算该通道的调整量
             channel_diff = bg_corrected_lab[:, :, i] - target_lab[:, :, i]
+            if background_mask.any():
+                bg_diffs = channel_diff[background_mask]
+                if bg_diffs.size > 0:
+                    low = np.percentile(bg_diffs, 5.0)
+                    high = np.percentile(bg_diffs, 95.0)
+                    channel_diff = np.clip(channel_diff, low, high)
             
             # 调整量 × 饱和度权重
             weighted_diff = channel_diff * saturation_weight
@@ -207,6 +213,13 @@ class ColorAlignmentNode:
         print(f"  L通道: 正常调整")
         print(f"  a/b通道: 按饱和度加权调整")
         result = cv2.cvtColor(result_lab.astype(np.uint8), cv2.COLOR_LAB2RGB)
+        result_denoised = cv2.medianBlur(result, 5)
+        diff = cv2.absdiff(result, result_denoised)
+        diff_sum = diff[:, :, 0].astype(np.int16) + diff[:, :, 1].astype(np.int16) + diff[:, :, 2].astype(np.int16)
+        dark_sum = result[:, :, 0].astype(np.int16) + result[:, :, 1].astype(np.int16) + result[:, :, 2].astype(np.int16)
+        pepper_mask = (diff_sum > 18) & (dark_sum < 90)
+        if pepper_mask.any():
+            result[pepper_mask] = result_denoised[pepper_mask]
         
         print("✓ 区域感知颜色对齐完成")
         
@@ -316,7 +329,6 @@ class ColorAlignmentNode:
         weight = cv2.GaussianBlur(weight, (5, 5), 0)
         
         return weight
-
 
 # ComfyUI 节点注册
 NODE_CLASS_MAPPINGS = {
